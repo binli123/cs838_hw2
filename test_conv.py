@@ -50,6 +50,7 @@ ref_conv2d = torch.nn.functional.conv2d
 ref_output = ref_conv2d(input_feats, weight, bias, stride, padding)
 custom_output = custom_conv2d(input_feats, weight, bias, stride, padding)
 err = (custom_output - ref_output).abs().max()
+print(err)
 if err < atol:
   print("Fprop testing passed")
 else:
