@@ -37,6 +37,7 @@ from utils import AverageMeter
 from student_code import CustomConv2d, default_model, get_train_transforms
 # part III
 from student_code import default_attack, default_attention, default_visfunction
+from student_code import AdvSimpleNet
 
 # the arg parser
 parser = argparse.ArgumentParser(description='PyTorch Image Classification')
@@ -76,6 +77,8 @@ parser.add_argument('--use-resnet18', action='store_true',
                     help='Use pretrained resnet18 model')
 parser.add_argument('--gpu', default=0, type=int,
                     help='GPU ID to use.')
+parser.add_argument('--use-adv-training', action='store_true',
+                    help='Use adversarial training')
 
 # tensorboard writer
 writer = SummaryWriter('../logs')
@@ -106,6 +109,8 @@ def main(args):
   elif args.use_resnet18:
     model = torchvision.models.resnet18(pretrained=True)
     model.fc = nn.Linear(512, 100)
+  elif args.use_adv_training:
+    model = AdvSimpleNet(num_classes=100)
   else:
     model = default_model(num_classes=100)
   model_arch = "simplenet"
