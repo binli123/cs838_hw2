@@ -61,13 +61,21 @@ class CustomConv2DFunction(Function):
     assert kernel_size <= (input_feats.size(3) + 2 * padding)
 
     #################################################################################
-    # Fill in the code here
-    #################################################################################
-
-    # save for backward (you need to save the unfolded tensor into ctx)
-    # ctx.save_for_backward(your_vars, weight, bias)
-
-    return output
+    output_height = int(np.floor((input_feats.size(2) + 2.0 * padding - kernel_size)/stride) + 1)
+    output_width = int(np.floor((input_feats.size(3) + 2.0 * padding - kernel_size)/stride) + 1)
+    weight=weight.double()
+    input_unfold = unfold(input_feats, (kernel_size, kernel_size), padding=padding, stride=stride).double()
+    output_unfold = input_unfold.transpose(1, 2).matmul(weight.view(weight.size(0), -1).t()).transpose(1, 2) + bias.view(1,bias.size(0),1)
+    output = fold(output_unfold, (output_height, output_width), (1, 1))
+    input_unfold = input_unfold.view(input_feats.size(0), input_feats.size(1), kernel_size*kernel_size, -1)
+    H = int((input_feats.size(2)+2*padding-kernel_size)/stride+1)
+    W = int((input_feats.size(3)+2*padding-kernel_size)/stride+1)
+    input_unfold = input_unfold.permute(0, 3, 1, 2).reshape(input_feats.size(0)*H*W, input_feats.size(1)*kernel_size*kernel_size).double()
+    ctx.save_for_backward(input_unfold, weight, bias)
+#    output = torch.nn.functional.conv2d(inputf.double(), weight.double(), padding=padding, stride=stride)
+#    print((torch.nn.functional.conv2d(inputf.double(), weight.double(), padding=padding, stride=stride).double() - output).abs().max())
+    
+    return output.double()
 
   @staticmethod
   def backward(ctx, grad_output):
@@ -95,9 +103,32 @@ class CustomConv2DFunction(Function):
     input_width = ctx.input_width
 
     #################################################################################
-    # Fill in the code here
-    #################################################################################
-    # compute the gradients w.r.t. input and params
+    # Fill in the code here   
+    # grad_output -- (N,C_out,OH,OW)
+    
+    grad_output_matrix = grad_output.permute(0,2,3,1).reshape(N*OH*OW,C_out)
+    # grad_ouput -- (N*OH*OW,C_out)
+    # feature_matrix  shape is  [N*OH*OW,C_in*K*K]  
+    grad_weight = feature_matrix.permute(1,0).matmul(grad_output_matrix)  ##[C_in*K*K,C_out]
+    
+    grad_weight = grad_weight.view(C_in,kernel_size,kernel_size,C_out)
+    grad_weight = grad_weight.permute(3,0,1,2) ## [C_out,C_in,K,K]
+    # kernel_matrix --[C_in*K*K,C_out]
+    grad_input_ = grad_output_matrix.matmul(kernel_matrix.permute(1,0)) # [N*OH*OW,C_in*K*K]
+    grad_input_ = grad_input_.view(N,OH,OW,C_in,kernel_size,kernel_size) #[N,OH,OW,C_in,K,K]
+    grad_input = torch.zeros(N,C_in,input_height+padding*2,input_width+padding*2).double() #[N,C_in,H,W]  (consider  padding)
+    grad_input = Variable(grad_input)
+    if torch.cuda.is_available():
+        grad_input = grad_input.cuda()
+    for y in range(OH):
+        y_left = y*stride
+        y_left_max = y_left + kernel_size 
+        for x in range(OW):
+            x_left = x*stride
+            x_left_max = x_left + kernel_size 
+            grad_input[:,:,y_left:y_left_max,x_left:x_left_max]= grad_input[:,:,y_left:y_left_max,x_left:x_left_max] + grad_input_[:,y,x,:,:,:]
+    
+    grad_input =  grad_input[:,:,padding:padding+input_height,padding:padding+input_width]
 
     if bias is not None and ctx.needs_input_grad[2]:
       # compute the gradients w.r.t. bias (if any)
