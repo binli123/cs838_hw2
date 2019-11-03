@@ -61,7 +61,6 @@ class CustomConv2DFunction(Function):
     assert kernel_size <= (input_feats.size(3) + 2 * padding)
 
     #################################################################################
-<<<<<<< HEAD
     output_height = int(np.floor((input_feats.size(2) + 2.0 * padding - kernel_size)/stride) + 1)
     output_width = int(np.floor((input_feats.size(3) + 2.0 * padding - kernel_size)/stride) + 1)
     weight=weight.double()
@@ -77,15 +76,6 @@ class CustomConv2DFunction(Function):
 #    print((torch.nn.functional.conv2d(inputf.double(), weight.double(), padding=padding, stride=stride).double() - output).abs().max())
     
     return output.double()
-=======
-    # Fill in the code here
-    #################################################################################
-
-    # save for backward (you need to save the unfolded tensor into ctx)
-    # ctx.save_for_backward(your_vars, weight, bias)
-
-    return output
->>>>>>> 02a078369d7e713b7fe7ba26e5dd9e5341d39614
 
   @staticmethod
   def backward(ctx, grad_output):
@@ -113,7 +103,6 @@ class CustomConv2DFunction(Function):
     input_width = ctx.input_width
 
     #################################################################################
-<<<<<<< HEAD
     # Fill in the code here   
     # grad_output -- (N,C_out,OH,OW)
     
@@ -140,11 +129,6 @@ class CustomConv2DFunction(Function):
             grad_input[:,:,y_left:y_left_max,x_left:x_left_max]= grad_input[:,:,y_left:y_left_max,x_left:x_left_max] + grad_input_[:,y,x,:,:,:]
     
     grad_input =  grad_input[:,:,padding:padding+input_height,padding:padding+input_width]
-=======
-    # Fill in the code here
->>>>>>> 02a078369d7e713b7fe7ba26e5dd9e5341d39614
-    #################################################################################
-    # compute the gradients w.r.t. input and params
 
     if bias is not None and ctx.needs_input_grad[2]:
       # compute the gradients w.r.t. bias (if any)
