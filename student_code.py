@@ -1,3 +1,4 @@
+# %load student_code.py
 from __future__ import division
 from __future__ import print_function
 from __future__ import absolute_import
@@ -13,6 +14,7 @@ import math
 from utils import resize_image
 import custom_transforms as transforms
 
+from model import MultiFCN
 
 #################################################################################
 # You will need to fill in the missing code in this file
@@ -59,6 +61,7 @@ class CustomConv2DFunction(Function):
     assert kernel_size <= (input_feats.size(3) + 2 * padding)
 
     #################################################################################
+<<<<<<< HEAD
     output_height = int(np.floor((input_feats.size(2) + 2.0 * padding - kernel_size)/stride) + 1)
     output_width = int(np.floor((input_feats.size(3) + 2.0 * padding - kernel_size)/stride) + 1)
     weight=weight.double()
@@ -74,6 +77,15 @@ class CustomConv2DFunction(Function):
 #    print((torch.nn.functional.conv2d(inputf.double(), weight.double(), padding=padding, stride=stride).double() - output).abs().max())
     
     return output.double()
+=======
+    # Fill in the code here
+    #################################################################################
+
+    # save for backward (you need to save the unfolded tensor into ctx)
+    # ctx.save_for_backward(your_vars, weight, bias)
+
+    return output
+>>>>>>> 02a078369d7e713b7fe7ba26e5dd9e5341d39614
 
   @staticmethod
   def backward(ctx, grad_output):
@@ -89,22 +101,19 @@ class CustomConv2DFunction(Function):
       grad_bias: gradients of the bias term
 
     """
-    
     # unpack tensors and initialize the grads
     # your_vars, weight, bias = ctx.saved_tensors
     grad_input = grad_weight = grad_bias = None
-#    feature_matrix,kernel_matrix,weight,bias = ctx.saved_tensors 
-    feature_matrix, weight ,bias =  ctx.saved_tensors 
+
     # recover the conv params
     kernel_size = weight.size(2)
     stride = ctx.stride
     padding = ctx.padding
     input_height = ctx.input_height
     input_width = ctx.input_width
-    C_in = weight.size(1)   
-    N,C_out,OH,OW = grad_output.shape
-    kernel_matrix = weight.view(C_out,-1).permute(1,0).double()
+
     #################################################################################
+<<<<<<< HEAD
     # Fill in the code here   
     # grad_output -- (N,C_out,OH,OW)
     
@@ -131,17 +140,16 @@ class CustomConv2DFunction(Function):
             grad_input[:,:,y_left:y_left_max,x_left:x_left_max]= grad_input[:,:,y_left:y_left_max,x_left:x_left_max] + grad_input_[:,y,x,:,:,:]
     
     grad_input =  grad_input[:,:,padding:padding+input_height,padding:padding+input_width]
+=======
+    # Fill in the code here
+>>>>>>> 02a078369d7e713b7fe7ba26e5dd9e5341d39614
     #################################################################################
     # compute the gradients w.r.t. input and params
-    if bias is not None and ctx.needs_input_grad[2]: 
+
+    if bias is not None and ctx.needs_input_grad[2]:
       # compute the gradients w.r.t. bias (if any)
       grad_bias = grad_output.sum((0,2,3))
-      
-    
-    grad_input = grad_input.double()
-    grad_weight = grad_weight.double()
-    grad_bias = grad_bias.double()
-    
+
     return grad_input, grad_weight, grad_bias, None, None
 
 custom_conv2d = CustomConv2DFunction.apply
@@ -193,7 +201,6 @@ class CustomConv2d(Module):
     if self.bias is None:
       s += ', bias=False'
     return s.format(**self.__dict__)
-
 
 #################################################################################
 # Part II: Design and train a network
@@ -252,6 +259,45 @@ class SimpleNet(nn.Module):
     x = self.fc(x)
     return x
 
+class AdvSimpleNet(SimpleNet):
+  # a simple CNN for image classifcation
+  def __init__(self, conv_op=nn.Conv2d, num_classes=100):
+    super().__init__(conv_op=conv_op, num_classes=num_classes)
+
+  def forward(self, x):
+    # you can implement adversarial training here
+    if self.training:
+      step_size = 0.01
+      num_steps = 5
+      epsilon = 0.1
+      out = x.clone()
+      out.requires_grad = True
+      x.requires_grad = False
+      for _ in range(num_steps):
+        t = self.features(out)
+        t = self.avgpool(t)
+        t = t.view(out.size(0), -1)
+        ypred = self.fc(t)
+
+        target, clf = torch.min(ypred, 1)
+
+        backprop = torch.cuda.FloatTensor(target.size()).fill_(1)
+        target.backward(backprop)
+
+        gradient = out.grad.data
+        gradient_sign = torch.sign(out.grad.data)
+
+        out.data = out.data + step_size * gradient_sign
+        out.data = torch.max(torch.min(out.data, x + epsilon), x - epsilon)
+        out.grad.zero_()
+        x = out
+
+    x = self.features(x)
+    x = self.avgpool(x)
+    x = x.view(x.size(0), -1)
+    x = self.fc(x)
+    return x
+
 # change this to your model!
 default_model = SimpleNet
 
@@ -306,12 +352,25 @@ class PGDAttack(object):
     """
     # clone the input tensor and disable the gradients
     output = input.clone()
+    output.requires_grad = True
     input.requires_grad = False
 
     # loop over the number of steps
-    # for _ in range(self.num_steps):
+    for _ in range(self.num_steps):
       #################################################################################
       # Fill in the code here
+      ypred = model(output)
+      target, clf = torch.min(ypred, 1)
+
+      backprop = torch.cuda.FloatTensor(target.size()).fill_(1)
+      target.backward(backprop)
+
+      gradient = output.grad.data
+      gradient_sign = torch.sign(output.grad.data)
+
+      output.data = output.data + self.step_size * gradient_sign
+      output.data = torch.max(torch.min(output.data, input + self.epsilon), input - self.epsilon)
+      output.grad.zero_()
       #################################################################################
 
     return output
@@ -351,6 +410,15 @@ class GradAttention(object):
 
     #################################################################################
     # Fill in the code here
+    ypred = model(input)
+    value, index = torch.max(ypred, 0)
+    ypred = ypred.gather(1, index.view(-1, 1)).squeeze()
+    ypred.backward(torch.cuda.FloatTensor(ypred.size()).fill_(1))
+    mag = input.grad
+    mag = mag.abs()
+    mag, _ = torch.max(mag, dim=1)
+    mag = torch.reshape(mag, (mag.shape[0], 1, mag.shape[1], mag.shape[2]))
+    output = mag
     #################################################################################
 
     return output
