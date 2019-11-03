@@ -1,3 +1,4 @@
+# %load student_code.py
 from __future__ import division
 from __future__ import print_function
 from __future__ import absolute_import
@@ -13,6 +14,7 @@ import math
 from utils import resize_image
 import custom_transforms as transforms
 
+from model import MultiFCN
 
 #################################################################################
 # You will need to fill in the missing code in this file
@@ -60,51 +62,11 @@ class CustomConv2DFunction(Function):
 
     #################################################################################
     # Fill in the code here
-    ## Step 1 : img2matrix
-    OH = int(np.floor((input_feats.size(2) + 2.0 * padding - kernel_size)/stride) + 1)
-    OW = int(np.floor((input_feats.size(3) + 2.0 * padding - kernel_size)/stride) + 1)
-    H = ctx.input_height
-    W = ctx.input_width
-    N = input_feats.size(0)
-    C_in = input_feats.size(1)
-    C_out = weight.size(0)
-    ## Do padding at first
-    input_feats_pad = torch.zeros(N,C_in,H+2*padding,W+2*padding)
-    input_feats_pad = Variable(input_feats_pad)
-    if torch.cuda.is_available():
-        input_feats_pad = input_feats_pad.cuda()
-		
-    input_feats_pad[:,:,padding:padding+H,padding:padding+W] = input_feats[:,:,:,:]
-    input_feats = input_feats_pad ## It's OK!!
-    
-    ##   img to matrix
-    feature_matrix = torch.zeros(N,OH,OW,C_in,kernel_size,kernel_size)
-    feature_matrix = Variable(feature_matrix)
-    if torch.cuda.is_available():
-        feature_matrix = feature_matrix.cuda()
-    for y in range( OH ):
-        y_right = y*stride
-        y_right_max = y_right + kernel_size 
-        for x in range( OW ):
-            x_right = x*stride
-            x_right_max = x_right +kernel_size
-            feature_matrix[:,y,x,:,:,:] = input_feats[:,:,y_right:y_right_max,x_right:x_right_max]
-    feature_matrix = feature_matrix.view(N*OH*OW,-1).double()
-    ##   kernel to matrix
-    ##  weight: filter weight of size C_o * C_i * K * K
-    kernel_matrix = weight.view(C_out,-1).permute(1,0).double()
-    ## matrix multiplication
-    result_matrix = feature_matrix.mm(kernel_matrix)
-    ## Step 2 : matrix2img
-    result_matrix = result_matrix.view(N,OH,OW,C_out)
-    bias = bias.double()
-    result_matrix = result_matrix + bias  # Add bias 
-    output = result_matrix .permute(0,3,1,2)
     #################################################################################
+
     # save for backward (you need to save the unfolded tensor into ctx)
- ##   ctx.save_for_backward(feature_matrix,kernel_matrix,weight,bias)   
-    ctx.save_for_backward(feature_matrix,weight,bias)
-    # ctx.save_for_backward(your_vars, weight, bias) 
+    # ctx.save_for_backward(your_vars, weight, bias)
+
     return output
 
   @staticmethod
@@ -121,59 +83,26 @@ class CustomConv2DFunction(Function):
       grad_bias: gradients of the bias term
 
     """
-    
     # unpack tensors and initialize the grads
     # your_vars, weight, bias = ctx.saved_tensors
     grad_input = grad_weight = grad_bias = None
-#    feature_matrix,kernel_matrix,weight,bias = ctx.saved_tensors 
-    feature_matrix, weight ,bias =  ctx.saved_tensors 
+
     # recover the conv params
     kernel_size = weight.size(2)
     stride = ctx.stride
     padding = ctx.padding
     input_height = ctx.input_height
     input_width = ctx.input_width
-    C_in = weight.size(1)   
-    N,C_out,OH,OW = grad_output.shape
-    kernel_matrix = weight.view(C_out,-1).permute(1,0).double()
+
     #################################################################################
-    # Fill in the code here   
-    # grad_output -- (N,C_out,OH,OW)
-    
-    grad_output_matrix = grad_output.permute(0,2,3,1).reshape(N*OH*OW,C_out)
-    # grad_ouput -- (N*OH*OW,C_out)
-    # feature_matrix  shape is  [N*OH*OW,C_in*K*K]  
-    grad_weight = feature_matrix.permute(1,0).mm(grad_output_matrix)  ##[C_in*K*K,C_out]
-    
-    grad_weight = grad_weight.view(C_in,kernel_size,kernel_size,C_out)
-    grad_weight = grad_weight.permute(3,0,1,2) ## [C_out,C_in,K,K]
-    # kernel_matrix --[C_in*K*K,C_out]
-    grad_input_ = grad_output_matrix.mm(kernel_matrix.permute(1,0)) # [N*OH*OW,C_in*K*K]
-    grad_input_ = grad_input_.view(N,OH,OW,C_in,kernel_size,kernel_size) #[N,OH,OW,C_in,K,K]
-    grad_input = torch.zeros(N,C_in,input_height+padding*2,input_width+padding*2).double() #[N,C_in,H,W]  (consider  padding)
-    grad_input = Variable(grad_input)
-    if torch.cuda.is_available():
-        grad_input = grad_input.cuda()
-    for y in range(OH):
-        y_left = y*stride
-        y_left_max = y_left + kernel_size 
-        for x in range(OW):
-            x_left = x*stride
-            x_left_max = x_left + kernel_size 
-            grad_input[:,:,y_left:y_left_max,x_left:x_left_max]= grad_input[:,:,y_left:y_left_max,x_left:x_left_max] + grad_input_[:,y,x,:,:,:]
-    
-    grad_input =  grad_input[:,:,padding:padding+input_height,padding:padding+input_width]
+    # Fill in the code here
     #################################################################################
     # compute the gradients w.r.t. input and params
-    if bias is not None and ctx.needs_input_grad[2]: 
+
+    if bias is not None and ctx.needs_input_grad[2]:
       # compute the gradients w.r.t. bias (if any)
       grad_bias = grad_output.sum((0,2,3))
-      
-    
-    grad_input = grad_input.double()
-    grad_weight = grad_weight.double()
-    grad_bias = grad_bias.double()
-    
+
     return grad_input, grad_weight, grad_bias, None, None
 
 custom_conv2d = CustomConv2DFunction.apply
@@ -225,7 +154,6 @@ class CustomConv2d(Module):
     if self.bias is None:
       s += ', bias=False'
     return s.format(**self.__dict__)
-
 
 #################################################################################
 # Part II: Design and train a network
@@ -284,6 +212,45 @@ class SimpleNet(nn.Module):
     x = self.fc(x)
     return x
 
+class AdvSimpleNet(SimpleNet):
+  # a simple CNN for image classifcation
+  def __init__(self, conv_op=nn.Conv2d, num_classes=100):
+    super().__init__(conv_op=conv_op, num_classes=num_classes)
+
+  def forward(self, x):
+    # you can implement adversarial training here
+    if self.training:
+      step_size = 0.01
+      num_steps = 5
+      epsilon = 0.1
+      out = x.clone()
+      out.requires_grad = True
+      x.requires_grad = False
+      for _ in range(num_steps):
+        t = self.features(out)
+        t = self.avgpool(t)
+        t = t.view(out.size(0), -1)
+        ypred = self.fc(t)
+
+        target, clf = torch.min(ypred, 1)
+
+        backprop = torch.cuda.FloatTensor(target.size()).fill_(1)
+        target.backward(backprop)
+
+        gradient = out.grad.data
+        gradient_sign = torch.sign(out.grad.data)
+
+        out.data = out.data + step_size * gradient_sign
+        out.data = torch.max(torch.min(out.data, x + epsilon), x - epsilon)
+        out.grad.zero_()
+        x = out
+
+    x = self.features(x)
+    x = self.avgpool(x)
+    x = x.view(x.size(0), -1)
+    x = self.fc(x)
+    return x
+
 # change this to your model!
 default_model = SimpleNet
 
@@ -338,12 +305,25 @@ class PGDAttack(object):
     """
     # clone the input tensor and disable the gradients
     output = input.clone()
+    output.requires_grad = True
     input.requires_grad = False
 
     # loop over the number of steps
-    # for _ in range(self.num_steps):
+    for _ in range(self.num_steps):
       #################################################################################
       # Fill in the code here
+      ypred = model(output)
+      target, clf = torch.min(ypred, 1)
+
+      backprop = torch.cuda.FloatTensor(target.size()).fill_(1)
+      target.backward(backprop)
+
+      gradient = output.grad.data
+      gradient_sign = torch.sign(output.grad.data)
+
+      output.data = output.data + self.step_size * gradient_sign
+      output.data = torch.max(torch.min(output.data, input + self.epsilon), input - self.epsilon)
+      output.grad.zero_()
       #################################################################################
 
     return output
@@ -383,6 +363,15 @@ class GradAttention(object):
 
     #################################################################################
     # Fill in the code here
+    ypred = model(input)
+    value, index = torch.max(ypred, 0)
+    ypred = ypred.gather(1, index.view(-1, 1)).squeeze()
+    ypred.backward(torch.cuda.FloatTensor(ypred.size()).fill_(1))
+    mag = input.grad
+    mag = mag.abs()
+    mag, _ = torch.max(mag, dim=1)
+    mag = torch.reshape(mag, (mag.shape[0], 1, mag.shape[1], mag.shape[2]))
+    output = mag
     #################################################################################
 
     return output
