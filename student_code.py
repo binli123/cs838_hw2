@@ -92,7 +92,7 @@ class CustomConv2DFunction(Function):
 
     """
     # unpack tensors and initialize the grads
-    # your_vars, weight, bias = ctx.saved_tensors
+    feature_matrix, weight, bias = ctx.saved_tensors
     grad_input = grad_weight = grad_bias = None
 
     # recover the conv params
@@ -101,6 +101,9 @@ class CustomConv2DFunction(Function):
     padding = ctx.padding
     input_height = ctx.input_height
     input_width = ctx.input_width
+    C_in = weight.size(1)
+    N, C_out, OH, OW = grad_output.shape
+    kernel_matrix = weight.view(C_out, -1).permute(1, 0).double()
 
     #################################################################################
     # Fill in the code here   
