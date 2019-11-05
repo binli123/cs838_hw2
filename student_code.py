@@ -68,8 +68,8 @@ class CustomConv2DFunction(Function):
     output_unfold = input_unfold.transpose(1, 2).matmul(weight.view(weight.size(0), -1).t()).transpose(1, 2) + bias.view(1,bias.size(0),1)
     output = fold(output_unfold, (output_height, output_width), (1, 1))
     input_unfold = input_unfold.view(input_feats.size(0), input_feats.size(1), kernel_size*kernel_size, -1)
-    H = int((input_feats.size(2)+2*padding-kernel_size)/stride+1)
-    W = int((input_feats.size(3)+2*padding-kernel_size)/stride+1)
+    H = output_height
+    W = output_width
     input_unfold = input_unfold.permute(0, 3, 1, 2).reshape(input_feats.size(0)*H*W, input_feats.size(1)*kernel_size*kernel_size).double()
     ctx.save_for_backward(input_unfold, weight, bias)
 #    output = torch.nn.functional.conv2d(inputf.double(), weight.double(), padding=padding, stride=stride)
