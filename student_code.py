@@ -286,7 +286,9 @@ class AdvSimpleNet(SimpleNet):
     return x
 
 # change this to your model!
-default_model = SimpleNet
+from model import MultiFCN
+# default_model = SimpleNet
+default_model = MultiFCN
 
 # define data augmentation used for training, you can tweak things if you want
 def get_train_transforms(normalize):
